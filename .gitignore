@@ -1,3 +1,5 @@
 .bundle/*
 vendor/*
 config.yml
+log/*
+tmp/*
