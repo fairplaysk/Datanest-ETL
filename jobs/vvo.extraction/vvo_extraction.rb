@@ -167,6 +167,7 @@ def process_file(file, document_id)
       @table_offset = 1
       checked_value = (doc/"//tr[#{2+@table_offset}]/td[@class='typOzn']")
     end
+    checked_value = (doc/"//div[@id='innerMain']/div/h2")
     
     if checked_value.nil?
         #puts "FAILURE: Did not find announcement type, omitting file: #{file}"
@@ -176,8 +177,9 @@ def process_file(file, document_id)
         return :unknown_announcement_type
     else
 	puts checked_value.inner_text
-        document_type = checked_value.inner_text
-        if document_type == "Oznámenie o výsledku verejného obstarávania"
+	      document_type = checked_value.inner_text
+        #if document_type == "Oznámenie o výsledku verejného obstarávania"
+        if document_type.match(/V\w+$/)
             puts "\e\[32m"
             puts "› #{file} is OK (#{document_type})"
             record = parse(doc)
@@ -285,7 +287,7 @@ def parse(doc)
         date = Date.parse(md_date_arr_from_supp_content[i][0])
       end
       suppliers << {:supplier_ico => supplier_ico.to_i,
-                    :supplier_name => md_supp_names_arr[i][2].gsub(/\302\240/,' ').strip,
+                    :supplier_name => md_supp_names_arr[i] ? md_supp_names_arr[i][2].gsub(/\302\240/,' ').strip : nil,
                     :supplier_ico_evidence => supplier_content,
                     :price => price.to_f,
                     :currency => currency,
@@ -305,6 +307,7 @@ def store(procurement, document_id)
         :procurement_id => procurement[:procurement_id],
         :customer_ico => procurement[:customer_ico],
         :supplier_ico => supplier[:supplier_ico],
+        :supplier_name => supplier[:supplier_name],
         :procurement_subject => procurement[:procurement_subject],
         :price => supplier[:price],
         :currency => supplier[:currency],
