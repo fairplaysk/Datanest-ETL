@@ -19,68 +19,76 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 class VvoLoading < Loading
-def initialize(manager)
-    super(manager)
-    @defaults_domain = 'vvo'
-end
+  
+  def initialize(manager)
+      super(manager)
+      @defaults_domain = 'vvo'
+  end
 
-def run
-    source_table = 'sta_procurements'
-    dataset_table = 'ds_procurements'
-    joined_table = 'tmp_procurements_joined'
-    regis_table = 'sta_regis_main'
-	staging_schema = @manager.staging_schema
+  def run
+      source_table = 'sta_procurements'
+      dataset_table = 'ds_procurements'
+      joined_table = 'tmp_procurements_joined'
+      regis_table = 'sta_regis_main'
+      staging_schema = @manager.staging_schema
 
-    self.phase = 'init'
+      self.phase = 'init'
 
-    join = "
-        CREATE TABLE #{staging_schema}.#{joined_table} (etl_loaded_date date)
-        SELECT
-            m.id,
-            year,
-            bulletin_id,
-            procurement_id,
-            customer_ico,
-            rcust.name customer_company_name,
-            supplier_ico,
-            rsupp.name supplier_company_name,
-            rsupp.region supplier_region,
-            procurement_subject,
-            price,
-            currency,
-            is_vat_included,
-            customer_ico_evidence,
-            supplier_ico_evidence,
-            subject_evidence,
-            price_evidence,
-            procurement_type_id,
-            document_id,
-            m.source_url,
-            m.date_created,
-            NULL etl_loaded_date
-        FROM #{staging_schema}.#{source_table} m
-        LEFT JOIN #{staging_schema}.#{regis_table} rcust ON rcust.ico = customer_ico
-        LEFT JOIN #{staging_schema}.#{regis_table} rsupp ON rsupp.ico = supplier_ico
-        WHERE m.etl_loaded_date IS NULL
-        "
+      join = "
+          CREATE TABLE #{staging_schema}.#{joined_table} (etl_loaded_date date)
+          SELECT
+              m.id,
+              year,
+              bulletin_id,
+              procurement_id,
+              customer_ico,
+              rcust.name customer_company_name,
+              supplier_ico,
+              rsupp.name supplier_company_name,
+              rsupp.region supplier_region,
+              procurement_subject,
+              price,
+              currency,
+              is_vat_included,
+              customer_ico_evidence,
+              supplier_ico_evidence,
+              subject_evidence,
+              price_evidence,
+              procurement_type_id,
+              document_id,
+              m.source_url,
+              m.date_created,
+              NULL etl_loaded_date
+          FROM #{staging_schema}.#{source_table} m
+          INNER JOIN #{staging_schema}.#{regis_table} rcust ON rcust.ico = customer_ico
+          INNER JOIN #{staging_schema}.#{regis_table} rsupp ON rsupp.ico = supplier_ico
+          WHERE m.etl_loaded_date IS NULL
+          "
     
-    self.logger.info "merging with organisations"
-    self.phase = 'merge'
+      self.logger.info "merging with organisations"
+      self.phase = 'merge'
 
-    drop_staging_table(joined_table)
-    execute_sql(join)
+      drop_staging_table(joined_table)
+      execute_sql(join)
     
-    mapping = create_identity_mapping(joined_table)
-    mapping[:batch_record_code] = :document_id
+      mapping = create_identity_mapping(joined_table)
+      mapping[:batch_record_code] = :document_id
     
-    self.logger.info "appending new records to dataset"
-    self.phase = 'append'
+      self.logger.info "appending new records to dataset"
+      self.phase = 'append'
 
-    append_table_with_map(joined_table, dataset_table, mapping, 
-                                 :condition => "etl_loaded_date IS NULL")
-    set_loaded_flag(source_table)
-    finalize_dataset_loading(dataset_table)
-    self.phase = 'end'
-end
+      append_table_with_map(joined_table, dataset_table, mapping, :condition => "etl_loaded_date IS NULL")
+      set_loaded_flag(source_table, regis_table)
+      finalize_dataset_loading(dataset_table)
+      self.phase = 'end'
+  end
+
+  # this sets the the loaded flag on those procurements that can be properly found in regis.
+  def set_loaded_flag(source_table, regis_table)
+    @connection << "UPDATE #{@manager.staging_schema}.#{source_table} m
+                    INNER JOIN #{@manager.staging_schema}.#{regis_table} rcust ON rcust.ico = m.customer_ico
+                    INNER JOIN #{@manager.staging_schema}.#{regis_table} rsupp ON rsupp.ico = m.supplier_ico                    
+                    SET m.etl_loaded_date = NOW()"
+  end
 
 end
