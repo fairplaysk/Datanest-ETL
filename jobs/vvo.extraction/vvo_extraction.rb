@@ -203,100 +203,121 @@ def process_file(file, document_id)
 end
 
 def parse(doc)
-    procurement_id = (doc/"//div[@id='innerMain']/div/h2").inner_text
-    bulletin_and_year_content = (doc/"//div[@id='innerMain']/div/div").inner_text
-    
-    md = bulletin_and_year_content.gsub(/ /,'').match(/Vestníkč.(\d*)\/(\d*)/u)
+  procurement_id = (doc/"//div[@id='innerMain']/div/h2").inner_text
+  
+  bulletin_and_year = (doc/"//div[@id='innerMain']/div/div").inner_text
+  bulletin_and_year_content = bulletin_and_year.gsub(/ /,'').match(/Vestník.*?(\d*)\/(\d*)/u)
+  bulletin_id = bulletin_and_year_content[1] unless bulletin_and_year_content.nil?
+  year = bulletin_and_year_content[2] unless bulletin_and_year_content.nil?
 
-    bulletin_id = md[1] unless md.nil?
-    year = md[2] unless md.nil?
+  suppliers = []
+  
+  customer_ico = customer_name = ''
 
-    customer_name_content = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody/tr[2]/td[2]/").inner_text
-
-    unless(customer_name_content.empty?)
-      md = customer_name_content.match(/(NÁZOV, ADRESY A KONTAKTNÉ MIESTO \(MIESTA\)|Názov, adresy a kontaktné miesto \(miesta\))?\s*^(Úradný názov:)?(.*)/u)
-      unless (md.nil?)
-      customer_name = md[3].strip
-      end
-    else
-      customer_name_content = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table/").inner_text.gsub(/\302\240/,' ').gsub(/\s+/,' ')
-      md = customer_name_content.match(/(NÁZOV, ADRESY A KONTAKTNÉ MIESTO \(MIESTA\)|Názov, adresy a kontaktné miesto \(miesta\))\s*(.*)IČO/u)
-      unless (md.nil?)
-        customer_name = md[2].strip
+  (doc/"//span[@class='nadpis']").each do |element|
+    if element.inner_text.match(/ODDIEL\s+I\W/)
+      customer_information = element.following_siblings.first
+      customer_name = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[1]/td[@class='hodnota']/span/span").inner_text.strip
+      customer_name = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[1]/td[@class='hodnota']/span").inner_text.strip if customer_name.empty?
+      customer_ico = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[2]/td[@class='hodnota']//span[@class='hodnota']").inner_text.strip
+    elsif element.inner_text.match(/ODDIEL\s+V\W/)
+      supplier_information = element.following_siblings.first
+      supplier = {}
+      (supplier_information/"//td[@class='kod']").each do |code|
+        if code.inner_text.match(/V\.*.*?[^\d]1{1}[^\d]$/)
+          #supplier[:date] = Date.parse((code.following_siblings.first/"//span[@class='hodnota']").inner_text)
+        elsif code.inner_text.match(/V\.*.*?[^\d]3{1}[^\d]/)
+          supplier = {}
+          supplier_details = code.parent.following_siblings.first/"//td[@class='hodnota']//span[@class='hodnota']"
+          supplier[:supplier_name] = supplier_details[0].inner_text; supplier[:supplier_ico] = supplier_details[1].inner_text.gsub(' ', '').to_i; supplier[:supplier_ico_evidence] = "";
+        elsif code.inner_text.match(/V\.*.*?[^\d]4{1}[^\d]/)
+          code.parent.following_siblings.each do |price_detail|
+            break unless (price_detail/"//td[@class='kod']").inner_text.empty?
+            if (price_detail/"//span[@class='podnazov']").inner_text.match(/konečná/) || (price_detail/"//span[@class='nazov']").inner_text.match(/konečná/)
+              price = (price_detail.following_siblings.first/"//span[@class='hodnota']")
+              supplier[:is_price_part_of_range] = (price_detail.following_siblings.first/"//span[@class='podnazov']").inner_html.downcase.match(/najnižšia/) ? true : false
+              supplier[:price] = price[0].inner_text.gsub(' ', '').gsub(',','.').to_f
+              supplier[:currency] = if price.inner_text.downcase.match(/sk|skk/) then 'SKK' else 'EUR' end
+              supplier[:vat_included] = !(price_detail.following_siblings[0]/"//span[@class='hodnota']").inner_text.downcase.match(/bez/) && !(price_detail.following_siblings[1]/"//span[@class='hodnota']").inner_text.downcase.match(/bez/)
+              suppliers << supplier
+            end
+          end
+        end
       end
     end
-
-
-    customer_ico_content = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody/tr[2]/td[2]/table/tbody/tr[2]/td/").inner_text
-    customer_ico_content = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table").inner_text if (customer_ico_content.empty?)    
-
-    
-    #we want to be sure, that we selected ICO with the XPath
-    md = customer_ico_content.gsub(/ /,'').match(/IČO:(\d*)/u)
-    if not md.nil?
-        customer_ico = md[1]
-    else
-        customer_name = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody/tr[2]/td[2]/table/tbody/tr[1]/td/").inner_text	
-        puts "unable to find ico for #{customer_name}"
-        #we should try regis here, but it seems that 2009 procurements are all ok
-    end
-    
-    procurement_subject = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody//span[@class='hodnota']")
-    procurement_subject = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table//span[@class='hodnota']") if(procurement_subject.size == 0)
-    procurement_subject = procurement_subject.first.inner_text.strip if procurement_subject.first
-	
-    supplier_content = (doc/"//table[@class='mainTable']/tbody/tr[#{13+@table_offset}]").inner_text
-    supplier_content = (doc/"//table[@class='mainTable']/tr[#{13+@table_offset}]").inner_text if (supplier_content.size == 0)
-
-    
-    #there could be multiple suppliers, each of them supplying part of the procurement with separate price
-    
-    supplier_content_stripped = \
-      supplier_content.mb_chars.downcase.
-        gsub('Č','č').
-        gsub('Á', 'á').
-        gsub('É', 'é').
-        gsub('Í', 'í').
-	gsub('Ý', 'ý').
-	gsub('Ľ', 'ľ').
-        gsub(/ /, '')
-
-    md_supp_arr = supplier_content_stripped.scan(/(názovaadresadodávateľa,sktorýmsauzatvorilazmluva|názovaadresahospodárskehosubjektu,vprospechktoréhosarozhodloozadanízákazky)\s*^.*$\s*ičo:(\d*)/u)
-    
-    md_supp_names_arr = supplier_content.scan(/(NÁZOV A ADRESA DODÁVATEĽA, S KTORÝM SA UZATVORILA ZMLUVA|Názov a adresa dodávateľa, s ktorým sa uzatvorila zmluva|NÁZOV A ADRESA HOSPODÁRSKEHO SUBJEKTU, V PROSPECH KTORÉHO SA ROZHODLO O ZADANÍ ZÁKAZKY)\s*^(Úradný názov:)?(.*)/u)
-    
-    md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(celkovákonečnáhodnotazákazky:\s*hodnota|hodnota\/najvyššiaponuka\(ktorásabraladoúvahy\)):(\d*[,|.]?\d*)(\w*)\s*(bezdph|sdph|vrátanedph)*/u)
-    md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(najvyššiaponuka)\(ktorásabraladoúvahy\):(\d*[,|.]\d*)(\w*)\s*(vrátanedph|bezdph)/u) if (md_price_arr_from_supp_content.empty?)
-    md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(najvyššiaponuka),ktorésazohľadňovali:(\d*[,|.]\d*)(\w*)\s*(vrátanedph|bezdph)/u) if (md_price_arr_from_supp_content.empty?)
-
-    md_date_arr_from_supp_content = supplier_content.mb_chars.downcase.scan(/dátum uzatvorenia zmluvy\n?\s*(\d.*)/)
-    md_date_arr_from_supp_content = supplier_content.mb_chars.downcase.scan(/dátum rozhodnutia o zadaní zákazky:?\n?\s*(\d.*)/) if md_date_arr_from_supp_content.empty?
-
-    suppliers = []
-
-    for i in 0..md_supp_arr.size-1
-      supplier_ico = md_supp_arr[i][1]
-      unless (md_price_arr_from_supp_content[i].nil?) #if we were able to match price here
-        price = md_price_arr_from_supp_content[i][1].gsub(",", ".")
-        currency = "EUR" if md_price_arr_from_supp_content[i][2].match(/eur/)
-        currency = "SKK" if md_price_arr_from_supp_content[i][2].match(/[sk|skk]/)
-        vat_included = true
-        vat_included = false if md_price_arr_from_supp_content[i][3] == "bezdph"
-      end
-      unless (md_date_arr_from_supp_content[i].nil?) #if we were able to match date here
-        date = Date.parse(md_date_arr_from_supp_content[i][0])
-      end
-      suppliers << {:supplier_ico => supplier_ico.to_i,
-                    :supplier_name => md_supp_names_arr[i] ? md_supp_names_arr[i][2].gsub(/\302\240/,' ').strip : nil,
-                    :supplier_ico_evidence => supplier_content,
-                    :price => price.to_f,
-                    :currency => currency,
-                    :vat_included => vat_included,
-                    :date => date}
-    end
-
-    {:customer_ico => customer_ico.to_i, :customer_name => customer_name, :customer_ico_evidence => customer_name_content, :suppliers => suppliers, :procurement_subject => procurement_subject, :year => year.to_i, :bulletin_id => bulletin_id.to_i, :procurement_id => procurement_id}
   end
+  
+
+  # customer_ico_content = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody/tr[2]/td[2]/table/tbody/tr[2]/td/").inner_text
+  # customer_ico_content = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table").inner_text if (customer_ico_content.empty?)    
+
+  # 
+  # #we want to be sure, that we selected ICO with the XPath
+  # md = customer_ico_content.gsub(/ /,'').match(/IČO:(\d*)/u)
+  # if not md.nil?
+  #     customer_ico = md[1]
+  # else
+  #     customer_name = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody/tr[2]/td[2]/table/tbody/tr[1]/td/").inner_text  
+  #     puts "unable to find ico for #{customer_name}"
+  #     #we should try regis here, but it seems that 2009 procurements are all ok
+  # end
+
+  procurement_subject = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody//span[@class='hodnota']")
+  procurement_subject = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table//span[@class='hodnota']") if(procurement_subject.size == 0)
+  procurement_subject = procurement_subject.first.inner_text.strip if procurement_subject.first
+
+  #     supplier_content = (doc/"//table[@class='mainTable']/tbody/tr[#{13+@table_offset}]").inner_text
+  #     supplier_content = (doc/"//table[@class='mainTable']/tr[#{13+@table_offset}]").inner_text if (supplier_content.size == 0)
+  # 
+  #     
+  #     #there could be multiple suppliers, each of them supplying part of the procurement with separate price
+  #     
+  #     supplier_content_stripped = \
+  #       supplier_content.mb_chars.downcase.
+  #         gsub('Č','č').
+  #         gsub('Á', 'á').
+  #         gsub('É', 'é').
+  #         gsub('Í', 'í').
+  # gsub('Ý', 'ý').
+  # gsub('Ľ', 'ľ').
+  #         gsub(/ /, '')
+  # 
+  #     md_supp_arr = supplier_content_stripped.scan(/(názovaadresadodávateľa,sktorýmsauzatvorilazmluva|názovaadresahospodárskehosubjektu,vprospechktoréhosarozhodloozadanízákazky)\s*^.*$\s*ičo:(\d*)/u)
+  #     
+  #     md_supp_names_arr = supplier_content.scan(/(NÁZOV A ADRESA DODÁVATEĽA, S KTORÝM SA UZATVORILA ZMLUVA|Názov a adresa dodávateľa, s ktorým sa uzatvorila zmluva|NÁZOV A ADRESA HOSPODÁRSKEHO SUBJEKTU, V PROSPECH KTORÉHO SA ROZHODLO O ZADANÍ ZÁKAZKY)\s*^(Úradný názov:)?(.*)/u)
+  #     
+  #     md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(celkovákonečnáhodnotazákazky:\s*hodnota|hodnota\/najvyššiaponuka\(ktorásabraladoúvahy\)):(\d*[,|.]?\d*)(\w*)\s*(bezdph|sdph|vrátanedph)*/u)
+  #     md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(najvyššiaponuka)\(ktorásabraladoúvahy\):(\d*[,|.]\d*)(\w*)\s*(vrátanedph|bezdph)/u) if (md_price_arr_from_supp_content.empty?)
+  #     md_price_arr_from_supp_content = supplier_content.mb_chars.downcase.gsub(/ /, '').scan(/(najvyššiaponuka),ktorésazohľadňovali:(\d*[,|.]\d*)(\w*)\s*(vrátanedph|bezdph)/u) if (md_price_arr_from_supp_content.empty?)
+  # 
+  #     md_date_arr_from_supp_content = supplier_content.mb_chars.downcase.scan(/dátum uzatvorenia zmluvy\n?\s*(\d.*)/)
+  #     md_date_arr_from_supp_content = supplier_content.mb_chars.downcase.scan(/dátum rozhodnutia o zadaní zákazky:?\n?\s*(\d.*)/) if md_date_arr_from_supp_content.empty?
+  # 
+  #     suppliers = []
+  # 
+  #     for i in 0..md_supp_arr.size-1
+  #       supplier_ico = md_supp_arr[i][1]
+  #       unless (md_price_arr_from_supp_content[i].nil?) #if we were able to match price here
+  #         price = md_price_arr_from_supp_content[i][1].gsub(",", ".")
+  #         currency = "EUR" if md_price_arr_from_supp_content[i][2].match(/eur/)
+  #         currency = "SKK" if md_price_arr_from_supp_content[i][2].match(/[sk|skk]/)
+  #         vat_included = true
+  #         vat_included = false if md_price_arr_from_supp_content[i][3] == "bezdph"
+  #       end
+  #       unless (md_date_arr_from_supp_content[i].nil?) #if we were able to match date here
+  #         date = Date.parse(md_date_arr_from_supp_content[i][0])
+  #       end
+  #       suppliers << {:supplier_ico => supplier_ico.to_i,
+  #                     :supplier_name => md_supp_names_arr[i] ? md_supp_names_arr[i][2].gsub(/\302\240/,' ').strip : nil,
+  #                     :supplier_ico_evidence => supplier_content,
+  #                     :price => price.to_f,
+  #                     :currency => currency,
+  #                     :vat_included => vat_included,
+  #                     :date => date}
+  #     end
+
+  {:customer_ico => customer_ico.to_i, :customer_name => customer_name, :customer_ico_evidence => "", :suppliers => suppliers, :procurement_subject => procurement_subject, :year => year.to_i, :bulletin_id => bulletin_id.to_i, :procurement_id => procurement_id}
+end
     
 def store(procurement, document_id)
     procurement[:suppliers].each do |supplier|
@@ -306,14 +327,16 @@ def store(procurement, document_id)
         :bulletin_id => procurement[:bulletin_id],
         :procurement_id => procurement[:procurement_id],
         :customer_ico => procurement[:customer_ico],
+        :customer_name => procurement[:customer_name],
         :supplier_ico => supplier[:supplier_ico],
         :supplier_name => supplier[:supplier_name],
         :procurement_subject => procurement[:procurement_subject],
         :price => supplier[:price],
+        :is_price_part_of_range => supplier[:is_price_part_of_range],
         :currency => supplier[:currency],
         :is_vat_included => supplier[:vat_included],
-        :customer_ico_evidence => "",
-        :supplier_ico_evidence => "",
+        :customer_ico_evidence => procurement[:customer_ico_evidence],
+        :supplier_ico_evidence => supplier[:supplier_ico_evidence],
         :subject_evidence => "",
         :price_evidence => "",
         :source_url => document_url(document_id),
