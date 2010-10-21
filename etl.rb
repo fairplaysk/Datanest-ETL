@@ -79,6 +79,10 @@ def create_job_manager
         @job_manager.staging_schema = @configuration["staging_schema"]
         @job_manager.dataset_schema = @configuration["dataset_schema"]
         
+        @job_manager.mailer_from = @configuration["mailer_from"]
+        @job_manager.mailer_to = @configuration["mailer_to"]
+        @job_manager.mailer_server = @configuration["mailer_server"]
+        
         if @configuration["job_search_path"]
             @job_manager.job_search_path = @configuration["job_search_path"]
         else

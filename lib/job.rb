@@ -20,6 +20,7 @@
 
 require 'lib/job_status'
 require 'lib/etl_defaults'
+require 'net/smtp'
 
 class Job
 attr_reader :connection
@@ -116,4 +117,17 @@ def execute_sql(sql_statement)
     @connection << sql_statement
 end
 
+def send_mail(content, from = @manager.mailer_from, to = @manager.mailer_to, server = @manager.mailer_server)
+  message = <<MESSAGE_END
+  From: #{from}
+  To: #{to}
+  Subject: Vysledok automatickeho behu ETL.
+
+  #{content}
+MESSAGE_END
+
+  Net::SMTP.start(server) do |smtp|
+    smtp.send_message message, from, to
+  end
+end
 end

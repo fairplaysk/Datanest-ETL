@@ -58,10 +58,12 @@ class VvoLoading < Loading
               document_id,
               m.source_url,
               m.date_created,
+              is_price_part_of_range,
+              customer_name,
               NULL etl_loaded_date
           FROM #{staging_schema}.#{source_table} m
-          INNER JOIN #{staging_schema}.#{regis_table} rcust ON rcust.ico = customer_ico
-          INNER JOIN #{staging_schema}.#{regis_table} rsupp ON rsupp.ico = supplier_ico
+          LEFT JOIN #{staging_schema}.#{regis_table} rcust ON rcust.ico = customer_ico
+          LEFT JOIN #{staging_schema}.#{regis_table} rsupp ON rsupp.ico = supplier_ico
           WHERE m.etl_loaded_date IS NULL
           "
     
@@ -80,15 +82,25 @@ class VvoLoading < Loading
       append_table_with_map(joined_table, dataset_table, mapping, :condition => "etl_loaded_date IS NULL")
       set_loaded_flag(source_table, regis_table)
       finalize_dataset_loading(dataset_table)
+      self.phase = 'email'
+      notify_if_bad_data(ds_procurements)
       self.phase = 'end'
+  end
+
+  def notify_if_bad_data(table_name)
+    joined_dataset = @connection[table_name.to_sym]
+    records_with_error = joined_dataset.filter('customer_company_name is ? or supplier_company_name is ?',nil,nil)
+    if records_with_error.count > 0
+      error_listing = records_with_error.map{|e| e[:id] }.join(',')
+      send_mail("Pri kopirovani dat do tabulky #{table_name} nastali problemy. #{records_with_error.count} zaznam(ov) s nasledovnymi ID je nutne skontrolovat: #{error_listing}.")
+    end
   end
 
   # this sets the the loaded flag on those procurements that can be properly found in regis.
   def set_loaded_flag(source_table, regis_table)
     @connection << "UPDATE #{@manager.staging_schema}.#{source_table} m
-                    INNER JOIN #{@manager.staging_schema}.#{regis_table} rcust ON rcust.ico = m.customer_ico
-                    INNER JOIN #{@manager.staging_schema}.#{regis_table} rsupp ON rsupp.ico = m.supplier_ico                    
+                    LEFT JOIN #{@manager.staging_schema}.#{regis_table} rcust ON rcust.ico = m.customer_ico
+                    LEFT JOIN #{@manager.staging_schema}.#{regis_table} rsupp ON rsupp.ico = m.supplier_ico                    
                     SET m.etl_loaded_date = NOW()"
   end
-
 end

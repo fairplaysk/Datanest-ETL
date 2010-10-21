@@ -49,6 +49,9 @@ attr_accessor :domains_config
 attr_reader :files_path
 attr_reader :etl_files_path, :jobs_path
 attr_accessor :job_search_path
+attr_accessor :mailer_from
+attr_accessor :mailer_to
+attr_accessor :mailer_server
 
 @@staging_system_columns = [:id, :date_created, :etl_loaded_date]
 @@job_superclass = Job
