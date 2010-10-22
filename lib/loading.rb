@@ -217,7 +217,14 @@ def finalize_dataset_loading(dataset_table)
     statement = "UPDATE #{@manager.dataset_schema}.#{dataset_table}
                     SET #{set_expression}, record_status = 'new'
                     WHERE record_status = 'loaded'"
-    execute_sql(statement)
+
+end
+
+def update_data_quality(dataset_table)
+  statement = "UPDATE #{@manager.dataset_schema}.#{dataset_table} 
+               SET quality_status = 'regis_match_fail' 
+               WHERE customer_company_name IS null or supplier_company_name IS null"
+  execute_sql(statement)                
 end
 
 def create_table_diff(diff_table, schema1, table1, schema2, table2, key_field, fields)

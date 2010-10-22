@@ -82,13 +82,14 @@ class VvoLoading < Loading
       append_table_with_map(joined_table, dataset_table, mapping, :condition => "etl_loaded_date IS NULL")
       set_loaded_flag(source_table)
       finalize_dataset_loading(dataset_table)
+      update_data_quality(dataset_table)
       self.phase = 'email'
       notify_if_bad_data(ds_procurements)
       self.phase = 'end'
   end
 
   def notify_if_bad_data(table_name)
-    joined_dataset = @connection[table_name.to_sym]
+    joined_dataset = @dataset_connection[table_name.to_sym]
     records_with_error = joined_dataset.filter('customer_company_name is ? or supplier_company_name is ?',nil,nil)
     if records_with_error.count > 0
       error_listing = records_with_error.map{|e| e[:id] }.join(',')

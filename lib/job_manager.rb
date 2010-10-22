@@ -41,6 +41,7 @@ require 'lib/download_manager'
 class JobManager
 
 attr_reader :connection
+attr_reader :dataset_connection
 attr_accessor :staging_schema, :dataset_schema
 attr_accessor :configuration
 attr_accessor :log
@@ -72,6 +73,13 @@ def establish_connection(connection_info)
     
     @connection_info = connection_info
     @connection = Sequel.mysql(@staging_schema,
+            :user => connection_info["username"],
+            :password => connection_info["password"], 
+            :host => connection_info["host"],
+            :encoding => 'utf8'
+            )
+    
+    @dataset_connection = Sequel.mysql(@dataset_schema,
             :user => connection_info["username"],
             :password => connection_info["password"], 
             :host => connection_info["host"],
