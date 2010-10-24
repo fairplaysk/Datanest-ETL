@@ -43,9 +43,13 @@ class VvoLoading < Loading
               procurement_id,
               customer_ico,
               rcust.name customer_company_name,
+              substring_index(rcust.address, ',', 1) as customer_company_address,
+              substring(substring_index(rcust.address, ',', -1), 9) as customer_company_town,
               supplier_ico,
               rsupp.name supplier_company_name,
               rsupp.region supplier_region,
+              substring_index(rsupp.address, ',', 1) as supplier_company_address,
+              substring(substring_index(rsupp.address, ',', -1), 9) as supplier_company_town,
               procurement_subject,
               price,
               currency,
@@ -60,6 +64,7 @@ class VvoLoading < Loading
               m.date_created,
               is_price_part_of_range,
               customer_name,
+              note,
               NULL etl_loaded_date
           FROM #{staging_schema}.#{source_table} m
           LEFT JOIN #{staging_schema}.#{regis_table} rcust ON rcust.ico = customer_ico
@@ -84,7 +89,7 @@ class VvoLoading < Loading
       finalize_dataset_loading(dataset_table)
       update_data_quality(dataset_table)
       self.phase = 'email'
-      notify_if_bad_data(ds_procurements)
+      #notify_if_bad_data(ds_procurements)
       self.phase = 'end'
   end
 
@@ -92,7 +97,7 @@ class VvoLoading < Loading
     joined_dataset = @dataset_connection[table_name.to_sym]
     records_with_error = joined_dataset.filter('customer_company_name is ? or supplier_company_name is ?',nil,nil)
     if records_with_error.count > 0
-      error_listing = records_with_error.map{|e| e[:id] }.join(',')
+      error_listing = records_with_error.map{|e| e[:_record_id] }.join(',')
       send_mail("Pri kopirovani dat do tabulky #{table_name} nastali problemy. #{records_with_error.count} zaznam(ov) s nasledovnymi ID je nutne skontrolovat: #{error_listing}.")
     end
   end
