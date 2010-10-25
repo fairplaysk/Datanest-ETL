@@ -121,11 +121,11 @@ end
 
 def send_mail(content, from = @manager.mailer_from, to = @manager.mailer_to, server = @manager.mailer_server)
   message = <<MESSAGE_END
-  From: #{from}
-  To: #{to}
-  Subject: Vysledok automatickeho behu ETL.
+From: #{from}
+To: #{to}
+Subject: Vysledok automatickeho behu ETL.
 
-  #{content}
+#{content}
 MESSAGE_END
 
   Net::SMTP.start(server) do |smtp|
