@@ -24,6 +24,7 @@ require 'net/smtp'
 
 class Job
 attr_reader :connection
+attr_reader :dataset_connection
 attr_reader :table_prefix, :schema,  :files_directory
 attr_reader :name
 attr_reader :config
@@ -36,6 +37,7 @@ attr_accessor :info
 def initialize(manager)
     @manager = manager
     @connection = @manager.connection
+    @dataset_connection = @manager.dataset_connection
     @schema = @manager.staging_schema
     @table_prefix = "sta_"
     @config = @manager.domains_config[@defaults_domain.to_s]
