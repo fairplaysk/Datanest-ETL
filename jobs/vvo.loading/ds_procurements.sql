@@ -54,3 +54,4 @@ CREATE TABLE `ds_procurements` (
   KEY `supplier_ico_index` (`supplier_ico`),
   KEY `supplier_region_index` (`supplier_region`)
 ) ENGINE=InnoDB AUTO_INCREMENT=16384 DEFAULT CHARSET=utf8$$
+

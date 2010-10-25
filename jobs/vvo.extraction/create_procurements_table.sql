@@ -25,6 +25,6 @@ CREATE TABLE `sta_procurements` (
   `is_price_part_of_range` tinyint(1) DEFAULT NULL,
   `note` text,
   PRIMARY KEY (`id`),
-  KEY `index2` (`customer_ico`,`supplier_ico`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=8204 DEFAULT CHARSET=utf8$$
+  KEY `index2` (`customer_ico`,`supplier_ico`)
+) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8$$
 
