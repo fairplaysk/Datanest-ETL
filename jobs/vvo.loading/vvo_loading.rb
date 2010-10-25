@@ -89,7 +89,7 @@ class VvoLoading < Loading
       finalize_dataset_loading(dataset_table)
       update_data_quality(dataset_table)
       self.phase = 'email'
-      notify_if_bad_data(ds_procurements)
+      notify_if_bad_data(dataset_table)
       self.phase = 'end'
   end
 
