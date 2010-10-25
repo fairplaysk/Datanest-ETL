@@ -78,7 +78,7 @@ def establish_connection(connection_info)
             :host => connection_info["host"],
             :encoding => 'utf8'
             )
-    
+            
     @dataset_connection = Sequel.mysql(@dataset_schema,
             :user => connection_info["username"],
             :password => connection_info["password"], 
@@ -91,6 +91,14 @@ def establish_connection(connection_info)
 	if @connection.nil?
 		raise "Unable to establish database connection"
 	end
+	
+	ActiveRecord::Base.establish_connection(
+	  :adapter => "mysql",
+	  :host => @connection_info["host"],
+	  :username => @connection_info["username"],
+	  :password => @connection_info["password"],
+	  :database => @staging_schema,
+	  :encoding => 'utf8')
 end
 
 def log_file=(logfile)
@@ -122,13 +130,6 @@ end
 
 def staging_schema=(schema)
 	@staging_schema = schema
-	ActiveRecord::Base.establish_connection(
-	  :adapter => "mysql",
-	  :host => @connection_info["host"],
-	  :username => @connection_info["username"],
-	  :password => @connection_info["password"],
-	  :database => @staging_schema,
-	  :encoding => 'utf8')
 end
 def path_for_job(job_name, job_type)
 
