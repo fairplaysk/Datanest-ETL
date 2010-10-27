@@ -211,8 +211,9 @@ def parse(doc)
   year = bulletin_and_year_content[2] unless bulletin_and_year_content.nil?
 
   suppliers = []
+  max_procurement_words = 12
   
-  customer_ico = customer_name = ''
+  customer_ico = customer_name = procurement_subject = ''
 
   (doc/"//span[@class='nadpis']").each do |element|
     if element.inner_text.match(/ODDIEL\s+I\W/)
@@ -220,17 +221,25 @@ def parse(doc)
       customer_name = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[1]/td[@class='hodnota']/span/span").inner_text.strip
       customer_name = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[1]/td[@class='hodnota']/span").inner_text.strip if customer_name.empty?
       customer_ico = (customer_information/"/tbody/tr[2]/td[2]/table/tbody/tr[2]/td[@class='hodnota']//span[@class='hodnota']").inner_text.strip
+    elsif element.inner_text.match(/ODDIEL\s+II\W/)
+      contract_information = element.following_siblings.first
+      (contract_information/"//td[@class='kod']").each do |code|
+        if code.inner_text.match(/II\.*.*?[^\d]4[^\d]$/)
+          procurement_subject = (code.following_siblings.first/"//span[@class='hodnota']").inner_text
+          procurement_subject = procurement_subject.split[0..max_procurement_words].join(' ')
+        end
+      end
     elsif element.inner_text.match(/ODDIEL\s+V\W/)
       supplier_information = element.following_siblings.first
       supplier = {}
       (supplier_information/"//td[@class='kod']").each do |code|
-        if code.inner_text.match(/V\.*.*?[^\d]1{1}[^\d]$/)
+        if code.inner_text.match(/V\.*.*?[^\d]1[^\d]$/)
           #supplier[:date] = Date.parse((code.following_siblings.first/"//span[@class='hodnota']").inner_text)
-        elsif code.inner_text.match(/V\.*.*?[^\d]3{1}[^\d]/)
+        elsif code.inner_text.match(/V\.*.*?[^\d]3[^\d]/)
           supplier = {}
           supplier_details = code.parent.following_siblings.first/"//td[@class='hodnota']//span[@class='hodnota']"
           supplier[:supplier_name] = supplier_details[0].inner_text; supplier[:supplier_ico] = supplier_details[1].inner_text.gsub(' ', '').to_i; supplier[:supplier_ico_evidence] = "";
-        elsif code.inner_text.match(/V\.*.*?[^\d]4{1}[^\d]/)
+        elsif code.inner_text.match(/V\.*.*?[^\d]4[^\d]/)
           code.parent.following_siblings.each do |price_detail|
             break unless (price_detail/"//td[@class='kod']").inner_text.empty?
             if (price_detail/"//span[@class='podnazov']").inner_text.match(/konečná/) || (price_detail/"//span[@class='nazov']").inner_text.match(/konečná/)
@@ -247,11 +256,7 @@ def parse(doc)
     end
   end
 
-  procurement_subject = (doc/"//table[@class='mainTable']/tbody/tr[#{7+@table_offset}]/td/table/tbody//span[@class='hodnota']")
-  procurement_subject = (doc/"//table[@class='mainTable']/tr[#{7+@table_offset}]/td/table//span[@class='hodnota']") if(procurement_subject.size == 0)
-  procurement_subject = procurement_subject.first.inner_text.strip if procurement_subject.first
-
-  {:customer_ico => customer_ico.to_i, :customer_name => customer_name, :customer_ico_evidence => "", :suppliers => suppliers, :procurement_subject => customer_name, :year => year.to_i, :bulletin_id => bulletin_id.to_i, :procurement_id => procurement_id}
+  {:customer_ico => customer_ico.to_i, :customer_name => customer_name, :customer_ico_evidence => "", :suppliers => suppliers, :procurement_subject => procurement_subject, :year => year.to_i, :bulletin_id => bulletin_id.to_i, :procurement_id => procurement_id}
 end
     
 def store(procurement, document_id)
