@@ -217,7 +217,8 @@ def finalize_dataset_loading(dataset_table)
     statement = "UPDATE #{@manager.dataset_schema}.#{dataset_table}
                     SET #{set_expression}, record_status = 'new'
                     WHERE record_status = 'loaded'"
-
+    
+    execute_sql(statement)
 end
 
 def update_data_quality(dataset_table)
