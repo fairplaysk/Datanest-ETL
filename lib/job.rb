@@ -129,7 +129,7 @@ Subject: Vysledok automatickeho behu ETL.
 MESSAGE_END
 
   Net::SMTP.start(server) do |smtp|
-    smtp.send_message message, from, to
+    smtp.send_message message, from, to.split(',')
   end
 end
 end
