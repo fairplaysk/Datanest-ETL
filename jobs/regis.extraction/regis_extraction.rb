@@ -24,334 +24,212 @@ require 'hpricot'
 require 'rexml/document'
 
 class RegisExtraction < Extraction
-include MonitorMixin
+  include DownloadManagerDelegate
 
-def initialize(manager)
+  def initialize(manager)
     super(manager)
-    
+
     @defaults_domain = 'regis'
     @target_table = "#{@manager.staging_schema}__sta_regis_main".to_sym
-end
+    end
 
-def setup_defaults
+    def setup_defaults
     @defaults[:data_source_name] = "Regis"
     @defaults[:data_source_url] = "http://www.statistics.sk/"
-    @download_url_base = "http://www.statistics.sk/pls/wregis/detail?wxidorg="
-    @defaults[:download_url] = @download_url_base
 
-    # last id: 1054548 (as of 2009-10)
+    setup_paths
+
     @download_start_id = defaults.value(:download_start_id, 1).to_i
-    @download_last_id = defaults.value(:download_last_id, 1000000).to_i
-    
-    @batch_size = defaults.value(:batch_size, 200).to_i
-    @download_threads = defaults.value(:download_threads, 10).to_i
+    @download_daily_limit = defaults.value(:download_daily_limit, 10000).to_i
+
+    @download_threads = defaults.value(:download_threads, 3).to_i
+    @batch_size = defaults.value(:batch_size, 10).to_i
     @download_fail_threshold = defaults.value(:download_fail_threshold, 10).to_i
 
-    @defaults[:files_directory] = files_directory
+    @base_url = defaults.value(:base_url, "http://www.statistics.sk/pls/wregis/detail?wxidorg=")
+    @file_encoding = "cp1250"
+  end
 
-    @file_encoding = "iso-8859-2"
-end
-
-def setup_paths
-    path = Pathname.new(files_directory)
+  def setup_paths
+    @download_dir = files_directory + Time.now.strftime("%Y-%m-%d")
+    @download_dir.rmtree if @download_dir.exist?
     
-    @downloads_path = path + 'downloads'
-    @downloads_path.mkpath
-end
+    @download_dir.mkpath
 
-def run
+    # Directory where processed files are archived
+    @processed_dir = files_directory + "processed"
+    @processed_dir.mkpath
+  end
+
+  def run
     setup_defaults
-    setup_paths
-    
+
     self.phase = "init"
 
-    files_to_download = @download_last_id - @download_start_id
-    files_per_thread = files_to_download / @download_threads
+    # Prepare download manager
+    @download_manager = DownloadManager.new
+    @download_manager.delegate = self
+    @download_manager.download_directory = @download_dir
+    @download_manager.thread_count = @download_threads
 
-    clean_up
-    
-    #######################################################
-    # Prepare downloads
+    # Documents to be downloaded
+    @last_processed_id = 0
+    @batch_start_id = @download_start_id
+    @batch_limit_id = @download_start_id + @download_daily_limit
 
-    self.phase = "launching threads"
+    # Do it!
+    @download_manager.download
 
-    self.logger.info "threads:#{@download_threads}"
-    self.logger.info "download id from #{@download_start_id} to #{@download_last_id}"
+    # If we have not downloaded everything, try to crawl slowly by batch-sized
+    # chunks in a sinlge thread
 
-    @batches_pending_lock = self.new_cond
-    @batches_to_process = []
-    @download_finished = false
-
-    thread_start_id = 0
-    @batch_id = 0
-    
-    download_threads = []
- 
-    #######################################################
-    # Downloads
-    
-    for thread_id in 1..@download_threads
-        thread_end_id = [thread_start_id + files_per_thread, @download_last_id].min
-
-        self.logger.info "running download thread #{thread_id} range: #{thread_start_id}-#{thread_end_id}"
-        
-        download_threads << Thread.new(thread_id, thread_start_id, thread_end_id) do 
-            |tid, tstart_id, tend_id|
-
-            batch_id = 0
-            start_id = tstart_id
-            while start_id < tend_id
-                end_id = [start_id + @batch_size - 1, tend_id].min
-                
-                self.logger.debug "thread #{tid}: downloading batch #{batch_id} range:#{start_id}-#{end_id}"
-
-                url_list = create_urls(start_id, end_id)
-                create_thread_batch_from_list(tid, batch_id, url_list)
-                download_batch(tid, batch_id)
-
-                # signalize that we are finished, so processing thread can
-                # start processing the downloaded batch
-                
-                self.synchronize do
-                    @batches_to_process << [tid, batch_id]
-                    @batches_pending_lock.signal
-                end
-
-                start_id = end_id + 1
-                batch_id = batch_id + 1
-            end
-        end
-        
-        thread_start_id = thread_start_id + files_per_thread + 1
-    end
-    
-    #######################################################
-    # Process
-    
-    self.logger.info "running processing thread"
-
-    process_thread = Thread.new do 
-        loop do
-            batch = nil
-            self.synchronize do
-                break if @download_finished and @batches_to_process.empty?
-                @batches_pending_lock.wait_while { @batches_to_process.empty? }
-                batch = @batches_to_process.shift
-            end
-            break unless batch
-            thread_id = batch[0]
-            batch_id = batch[1]
-
-            self.phase = "processing batch #{batch_id} of #{@batches_to_process.count}"
-            self.logger.debug "processing thread #{thread_id} batch #{batch_id} (#{@batches_to_process.count} remaining)"
-            process_thread_batch(thread_id, batch_id)
-        end
-        self.logger.info "processing finished"
+    if @last_processed_id == @batch_limit_id
+    download_over_limit
     end
 
-    #######################################################
-    # Wait
-
-    self.logger.info "waiting for downloads to finish"
-    self.phase = "waiting for downloads"
-
-    download_threads.each { |thread| thread.join }
-
-    self.logger.info "downloads finished"
-    @download_finished = true
-
-    self.logger.info "waiting for batch process to finish"
-    self.phase = "waiting for batch process"
-    process_thread.join
-    
-    #######################################################
-    # Finalize
-
-    self.logger.info "finalizing"
-    self.phase = "finalizing"
-
-    table = connection[@target_table].filter("etl_loaded_date IS NULL")
-    max_doc_id = table.max(:doc_id)
-
-    failed_pages = @download_last_id - max_doc_id
-
-    @defaults[:status_failed_pages] = failed_pages
-    @defaults[:status_last_downloaded_id] = max_doc_id
-
-    self.logger.info "last id:#{max_doc_id} fail count:#{failed_pages}"
-
-    if failed_pages < @download_fail_threshold
-        @defaults[:download_last_id] = @download_last_id + @download_fail_threshold
-        self.logger.info "increasing last id to #{@defaults[:download_last_id]}"
-    else
-        self.logger.info "seems to be at end, keeping last download id"
+    if @last_processed_id > 0
+    self.logger.info "new download start id: #{@last_processed_id}"
+    defaults[:download_start_id] = @last_processed_id
     end
-end
+  end
 
-def clean_up
-    self.phase = "cleanup"
+  def download_over_limit
+    # ... in single thread
+    @download_manager.thread_count = 1
 
-    self.logger.info "removing downloaded files in #{@downloads_path}"
+    loop do
+      self.logger.info "more documents than daily limit (#{@batch_limit_id})"
 
-    @downloads_path.children.each { |path|
-        if path.directory?
-            path.rmtree
-        else
-            path.delete
-        end
-    }
+      @batch_start_id = @batch_limit_id
+      @batch_limit_id = @batch_limit_id + @batch_size
 
-    self.logger.info "emptying table"
-    @connection[@target_table].delete
-end
+      # get some more
+      @download_manager.download
 
-def create_urls(id_from, id_to)
-    list = []
-    id_from.upto(id_to) { |i|
-        list << "#{@download_url_base}#{i}"
-    }
-    return list
-end
-
-def create_thread_batch_from_list(thread_id, batch_id, url_list)
-    path = batch_list_path(thread_id, batch_id)
-
-    file = File.open(path, "w")
-    url_list.each { |url|
-        file.puts url
-    }
-    file.close
-end
-
-def download_batch(thread_id, batch_id)
-    batch_file = batch_list_path(thread_id, batch_id)
-    batch_path = batch_downloads_path(thread_id, batch_id)
-    batch_path.mkpath 
-    # FIXME: handle this more gracefuly and between threads
-    if not system("wget", "-Eq", "-P", batch_path.to_s, "-i", batch_file.to_s)
-        self.logger.error "unable to run wget"
+      break if @last_processed_id < @batch_limit_id
     end
-    
-    self.logger.debug "thread #{thread_id}: batch #{batch_id} download finished"
-end
+  end
 
-def process_thread_batch(thread_id, batch_id)
-    batch_path = batch_downloads_path(thread_id, batch_id)
-    batch_files = batch_path.children.select { | path |
-                              path.extname == ".html"
-                          }
-
-    batch_files.each { |file|
-        process_file(file)
-    }
-end
-
-
-def batch_downloads_path(thread_id, batch_id)
-    return @downloads_path + "batch_#{batch_id}_#{thread_id}"
-end
-
-def batch_list_path(thread_id, batch_id)
-    return files_directory + "batch_#{batch_id}_#{thread_id}_url_list"
-end
-
-def id_from_filename(filename)
-    docid = filename.to_s.gsub(/(.*=)([0-9]+)(\.html)$/,'\2')
-    return docid.to_i
-end
-
-def process_file(file_name)
-    # process_file_h2(file_name)
-    # process_file_hpricot2(file_name)
-    process_file_hpricot(file_name)
-end
-def process_file_hpricot(file_name)
-    # FIXME: handle process exception: issue warning, return and do not delete file
-
-    file = File.open(file_name)
-
-    if File.size?(file).nil?
-        self.logger.info "empty file #{file.basename}"
-        return
-    end
-    
-    doc_id = id_from_filename(file_name)
-
-    contents = file.read
-    contents = Iconv.conv("utf-8", @file_encoding, contents)
-    document = Hpricot contents
-    xml = Hpricot::XML contents
-    # 7 9 13
-    body = xml.children[2].children[1].children[3]
-    tables = body.children[3].children[3].children[5]
-    table1 = tables.children[1]
-    table2 = tables.children[1].children[7].children[1]
-    table3 = tables.children[1].children[9].children[1]
-    table4 = tables.children[1].children[13].children[1]
-    
-    ico = table1.children[1].children[5].children[0].children[0].to_s
-    name = table1.children[3].children[5].children[0].children[0].to_s
-    legal_form = table1.children[5].children[5].children[0].children[0].to_s
-    legal_form = legal_form.to_s.gsub(/ \-.*/,'')
-    
-    date_start = table2.children[1].children[5].children[0].children[0].to_s
-    date_end = table2.children[3].children[5].children[0]
-
-    if date_end.is_a?(Hpricot::Elem)
-        date_end = date_end.children[0].to_s
-    else
-        date_end = date_end.to_s
+  # delegate methods
+  def create_download_batch(manager, batch_id)
+    if @batch_start_id > @batch_limit_id
+      # self.logger.info "no more files for batch #{batch_id}"
+      return nil
     end
 
-    address = table3.children[1].children[5].children[0].children[0].to_s
-    region = table3.children[3].children[5].children[0].children[0].to_s
+    last_id = @batch_start_id + @batch_size
+    last_id = @batch_limit_id if last_id > @batch_limit_id
 
-    activity1 = table4.children[5].children[3].children
-    activity1 = activity1[0].to_s if not activity1.nil?
+    self.logger.info "batch #{batch_id} range #{@batch_start_id}-#{last_id}"
 
-    activity2 = table4.children[7].children[3].children
-    activity2 = activity2[0].to_s if not activity2.nil?
-    
-    account_sector = table4.children[9].children[3].children
-    account_sector = account_sector[0].to_s if not account_sector.nil?
-
-    ownership = table4.children[11].children[3].children
-    ownership = ownership[0].to_s if not ownership.nil?
-
-    size = table4.children[13].children[3].children
-    size = size[0].to_s if not size.nil?
-
-    date_start_splits = date_start.split('.')
-    date_start = date_start_splits.reverse.join('-')
-    if date_end != '-'
-        date_end_splits = date_start.split('.')
-        date_end = date_end_splits.reverse.join('-')
+    urls = Array.new
+    for doc_id in @batch_start_id..last_id
+      urls << document_url(doc_id)
     end
-    region.strip!
-    address.gsub!('?', '')
-    
-    date_end = nil if date_end == '-'
-    size = nil if size == "  "
-    
-    url = @download_url_base.to_s + doc_id.to_s
-    
+
+    @batch_start_id = last_id + 1
+
+    return DownloadBatch.new(urls)
+  end
+
+  def document_url(document_id)
+    return "#{@base_url}#{document_id}"
+  end
+
+  def download_batch_failed(manager, batch)
+    self.logger.warn "download batch #{batch.id} failed"
+  end
+
+  def process_download_batch(manager, batch)
+    self.logger.info "process batch #{batch.id}"
+    self.logger.info "  count of files #{batch.files.count}"
+    batch.files.each do |filename|
+      self.logger.info "process batch #{batch.id} file #{filename}"
+      path = Pathname.new(filename)
+      document_id = id_from_filename(filename) #filename.basename.to_s.split('.').first.to_i
+
+      result = process_file(path, document_id)
+
+      self.logger.warn "document fail #{document_id} #{result}" unless result == :ok
+
+      next if result == :announcement_not_found
+
+      @last_processed_id = document_id if document_id > @last_processed_id
+
+      path.rename(@processed_dir + filename.basename)
+    end
+  end
+
+  def process_file(file, document_id)
+    file_content = Iconv.conv("utf-8", @file_encoding, File.open(file).read)
+    record = parse(Hpricot(file_content), file)
+
+    return :ok
+    end
+
+    def parse(doc, filename)
+    doc_id = id_from_filename(filename)
+
+    ico = name = legal_form = date_start = date_end = address = region = ''
+    (doc/"//div[@class='telo']/table[@class='tabid']/tbody/tr").each do |row|
+      if (row/"//td[1]").inner_text.match(/i(Č|č|c)o/i)
+        ico = (row/"//td[3]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/meno/i)
+        name = (row/"//td[3]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/forma/i)
+        legal_form = (row/"//td[3]").inner_text.split('-')[0].strip
+      elsif (row/"//td[1]").inner_text.match(/vzniku/i)
+        date_start = (row/"//td[3]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/z(a|á|Á)niku/i)
+        date_end = (row/"//td[3]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/adresa/i)
+        address = (row/"//td[3]").inner_text.strip
+      elsif (row/"//td[1]").inner_text.match(/okres/i)
+        region = (row/"//td[3]").inner_text.strip
+      end
+    end
+
+    activity1 = activity2 = account_sector = ownership = size = ''
+    (doc/"//div[@class='telo']/table[@class='tablist']/tbody/tr").each do |row|
+      if (row/"//td[1]").inner_text.match(/SK NACE/i)
+        activity1 = (row/"//td[2]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/OKE(Č|č|c)/i)
+        activity2 = (row/"//td[2]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/sektor/i)
+        account_sector = (row/"//td[2]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/vlastn(i|í|Í)ctva/i)
+        ownership = (row/"//td[2]").inner_text
+      elsif (row/"//td[1]").inner_text.match(/ve(l|ľ|Ľ)kosti/i)
+        size = (row/"//td[2]").inner_text  
+      end
+    end
+
+    date_start = Date.parse(date_start) rescue nil
+    date_end = Date.parse(date_end) rescue nil
+
+    url = @base_url.to_s + doc_id.to_s
+
     connection[@target_table].insert(
-            :doc_id => doc_id,
-            :ico => ico,
-            :name => name,
-            :legal_form => legal_form,
-            :date_start => date_start,
-            :date_end => date_end,
-            :address => address,
-            :region => region,
-            :activity1 => activity1,
-            :activity2 => activity2,
-            :account_sector => account_sector,
-            :ownership => ownership,
-            :size => size,
-            :date_created => Time.now,
-            :source_url => url)
-    # delete processed file
-    file_name.delete
-end
+      :doc_id => doc_id,
+      :ico => ico,
+      :name => name,
+      :legal_form => legal_form,
+      :date_start => date_start,
+      :date_end => date_end,
+      :address => address,
+      :region => region,
+      :activity1 => activity1,
+      :activity2 => activity2,
+      :account_sector => account_sector,
+      :ownership => ownership,
+      :size => size,
+      :date_created => Time.now,
+      :source_url => url )
+  end
+
+  def id_from_filename(filename)
+  docid = filename.to_s.gsub(/(.*=)([0-9]+)(\.html)$/,'\2')
+  return docid.to_i
+  end
+
 end

@@ -105,7 +105,7 @@ class RegisLoading < Loading
 		append_table_with_map(final_table, dataset_table, mapping, :condition => news_condition)
 
 		change_condition = "@TABLE.etl_loaded_date IS NULL 
-		                            AND @TABLE.etl_diff_status = 'n'"
+		                            AND @TABLE.etl_diff_status = 'c'"
 
         self.logger.info "updating old records"
 		update_table_with_map(final_table, dataset_table, mapping, "ico", :condition => change_condition)
