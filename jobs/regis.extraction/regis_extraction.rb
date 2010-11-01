@@ -228,9 +228,7 @@ def download_batch(thread_id, batch_id)
     batch_path = batch_downloads_path(thread_id, batch_id)
     batch_path.mkpath 
     # FIXME: handle this more gracefuly and between threads
-    if not system("wget", "-Eq", "-P", batch_path.to_s, "-i", batch_file.to_s)
-        self.logger.error "unable to run wget"
-    end
+    self.logger.error "unable to run wget: 'wget -Eq -P #{batch_path.to_s} -i #{batch_file.to_s}' error: #{$?}" unless system("wget", "-Eq", "-P", batch_path.to_s, "-i", batch_file.to_s)
     
     self.logger.debug "thread #{thread_id}: batch #{batch_id} download finished"
 end
