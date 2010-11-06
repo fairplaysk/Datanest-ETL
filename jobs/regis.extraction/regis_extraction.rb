@@ -144,7 +144,7 @@ class RegisExtraction < Extraction
     self.logger.info "process batch #{batch.id}"
     self.logger.info "  count of files #{batch.files.count}"
     batch.files.each do |filename|
-      self.logger.info "process batch #{batch.id} file #{filename}"
+      #self.logger.info "process batch #{batch.id} file #{filename}"
       path = Pathname.new(filename)
       document_id = id_from_filename(filename) #filename.basename.to_s.split('.').first.to_i
 
@@ -156,7 +156,8 @@ class RegisExtraction < Extraction
 
       @last_processed_id = document_id if document_id > @last_processed_id
 
-      path.rename(@processed_dir + filename.basename)
+      # path.rename(@processed_dir + filename.basename)
+      path.delete
     end
   end
 
@@ -165,9 +166,9 @@ class RegisExtraction < Extraction
     record = parse(Hpricot(file_content), file)
 
     return :ok
-    end
+  end
 
-    def parse(doc, filename)
+  def parse(doc, filename)
     doc_id = id_from_filename(filename)
 
     ico = name = legal_form = date_start = date_end = address = region = ''
@@ -228,8 +229,7 @@ class RegisExtraction < Extraction
   end
 
   def id_from_filename(filename)
-  docid = filename.to_s.gsub(/(.*=)([0-9]+)(\.html)$/,'\2')
-  return docid.to_i
+    filename.to_s.gsub(/(.*=)([0-9]+)(\.html)$/,'\2').to_i
   end
 
 end

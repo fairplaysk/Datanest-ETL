@@ -180,9 +180,7 @@ def create_next_batch
     @mutex.synchronize do
         @batch_id = @batch_id + 1
         batch = @delegate.create_download_batch(self, @batch_id)
-        if not batch.nil?
-            batch.id = @batch_id
-        end
+        batch.id = @batch_id if batch
     end
     return batch
 end
@@ -193,33 +191,24 @@ def download_batch(batch)
 end
 
 # wget method of downloading
+# FIXME: check permissions
 def download_batch_wget(batch)
-
-    # FIXME: check permissions
-
     # create batch URL list file for wget
     list_path = @download_directory + "batch_url_list_#{batch.id}"
 
-    file = File.open(list_path, "w")
-    batch.urls.each { |url|
-        file.puts url
-    }
-    file.close
+    File.open(list_path, "w") do |file|
+      batch.urls.each { |url| file.puts url}
+    end
 
     # create directory where files will be downloaded
     download_directory = @download_directory + "batch_files_#{batch.id}"
-    
     download_directory.mkpath
     
-    result = system("wget", "-qE", "-P", download_directory.to_s, "-i", list_path.to_s)
+    wget_success = system("wget", "-qE", "-P", download_directory.to_s, "-i", list_path.to_s)
     
-    batch.files = download_directory.children.select { | path |
-                      path.file?
-                  }
-    if !result
-        return false
-    end
-    return true
+    batch.files = download_directory.children.select { | path | path.file? }
+    
+    return wget_success
 end
 
 end
