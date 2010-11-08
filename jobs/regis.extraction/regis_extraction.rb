@@ -31,9 +31,9 @@ class RegisExtraction < Extraction
 
     @defaults_domain = 'regis'
     @target_table = "#{@manager.staging_schema}__sta_regis_main".to_sym
-    end
+  end
 
-    def setup_defaults
+  def setup_defaults
     @defaults[:data_source_name] = "Regis"
     @defaults[:data_source_url] = "http://www.statistics.sk/"
 
@@ -83,13 +83,15 @@ class RegisExtraction < Extraction
     # If we have not downloaded everything, try to crawl slowly by batch-sized
     # chunks in a sinlge thread
 
-    if @last_processed_id == @batch_limit_id
-    download_over_limit
-    end
+    # if @last_processed_id == @batch_limit_id
+    #   download_over_limit
+    # end
 
     if @last_processed_id > 0
-    self.logger.info "new download start id: #{@last_processed_id}"
-    defaults[:download_start_id] = @last_processed_id
+      self.logger.info "new download start id: #{@last_processed_id}"
+      defaults[:download_start_id] = @last_processed_id
+      Thread.new { system('/Users/m1k3/Projects/AFP/datanest_etl/etl.rb regis.extraction') }
+      exit
     end
   end
 
@@ -163,14 +165,13 @@ class RegisExtraction < Extraction
 
   def process_file(file, document_id)
     file_content = Iconv.conv("utf-8", @file_encoding, File.open(file).read)
-    record = parse(Hpricot(file_content), file)
+    attributes = RegisExtraction.parse(Hpricot(file_content), id_from_filename(file), @base_url)
+    insert_into_table(attributes)
 
     return :ok
   end
 
-  def parse(doc, filename)
-    doc_id = id_from_filename(filename)
-
+  def self.parse(doc, doc_id, base_url, url = nil)
     ico = name = legal_form = date_start = date_end = address = region = ''
     (doc/"//div[@class='telo']/table[@class='tabid']/tbody/tr").each do |row|
       if (row/"//td[1]").inner_text.match(/i(Č|č|c)o/i)
@@ -208,10 +209,9 @@ class RegisExtraction < Extraction
     date_start = Date.parse(date_start) rescue nil
     date_end = Date.parse(date_end) rescue nil
 
-    url = @base_url.to_s + doc_id.to_s
-
-    connection[@target_table].insert(
-      :doc_id => doc_id,
+    url ||= base_url.to_s + doc_id.to_s
+    
+    { :doc_id => doc_id,
       :ico => ico,
       :name => name,
       :legal_form => legal_form,
@@ -225,7 +225,11 @@ class RegisExtraction < Extraction
       :ownership => ownership,
       :size => size,
       :date_created => Time.now,
-      :source_url => url )
+      :source_url => url }
+  end
+  
+  def insert_into_table(attributes)
+    connection[@target_table].insert(attributes)
   end
 
   def id_from_filename(filename)
