@@ -238,7 +238,9 @@ def parse(doc)
         elsif code.inner_text.match(/V\.*.*?[^\d]3[^\d]/)
           supplier = {}
           supplier_details = code.parent.following_siblings.first/"//td[@class='hodnota']//span[@class='hodnota']"
-          supplier[:supplier_name] = supplier_details[0].inner_text; supplier[:supplier_ico] = supplier_details[1].inner_text.gsub(' ', '').to_i; supplier[:supplier_ico_evidence] = "";
+          supplier[:supplier_name] = supplier_details[0].inner_text; supplier[:supplier_ico] = supplier_details[1].inner_text.gsub(' ', ''); supplier[:supplier_ico_evidence] = "";
+          supplier[:supplier_ico] = Float(supplier[:supplier_ico]) rescue supplier[:supplier_ico]
+          supplier[:note] = "Zahranicne IČO: #{supplier[:supplier_ico]}" if supplier[:supplier_ico] && supplier[:supplier_ico].class != Float
         elsif code.inner_text.match(/V\.*.*?[^\d]4[^\d]/)
           code.parent.following_siblings.each do |price_detail|
             break unless (price_detail/"//td[@class='kod']").inner_text.empty?
@@ -261,26 +263,27 @@ end
     
 def store(procurement, document_id)
     procurement[:suppliers].each do |supplier|
-    Procurement.create!({
-        :document_id => document_id,
-        :year => procurement[:year],
-        :bulletin_id => procurement[:bulletin_id],
-        :procurement_id => procurement[:procurement_id],
-        :customer_ico => procurement[:customer_ico],
-        :customer_name => procurement[:customer_name],
-        :supplier_ico => supplier[:supplier_ico],
-        :supplier_name => supplier[:supplier_name],
-        :procurement_subject => procurement[:procurement_subject],
-        :price => supplier[:price],
-        :is_price_part_of_range => supplier[:is_price_part_of_range],
-        :currency => supplier[:currency],
-        :is_vat_included => supplier[:vat_included],
-        :customer_ico_evidence => procurement[:customer_ico_evidence],
-        :supplier_ico_evidence => supplier[:supplier_ico_evidence],
-        :subject_evidence => "",
-        :price_evidence => "",
-        :source_url => document_url(document_id),
-        :date_created => Time.now})
+      Procurement.create!({
+          :document_id => document_id,
+          :year => procurement[:year],
+          :bulletin_id => procurement[:bulletin_id],
+          :procurement_id => procurement[:procurement_id],
+          :customer_ico => procurement[:customer_ico],
+          :customer_name => procurement[:customer_name],
+          :supplier_ico => supplier[:supplier_ico],
+          :supplier_name => supplier[:supplier_name],
+          :procurement_subject => procurement[:procurement_subject],
+          :price => supplier[:price],
+          :is_price_part_of_range => supplier[:is_price_part_of_range],
+          :currency => supplier[:currency],
+          :is_vat_included => supplier[:vat_included],
+          :customer_ico_evidence => procurement[:customer_ico_evidence],
+          :supplier_ico_evidence => supplier[:supplier_ico_evidence],
+          :subject_evidence => "",
+          :price_evidence => "",
+          :source_url => document_url(document_id),
+          :date_created => Time.now,
+          :note => supplier[:note]})
     end
 end 
 def document_url(document_id)

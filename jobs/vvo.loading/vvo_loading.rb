@@ -94,12 +94,22 @@ class VvoLoading < Loading
   end
 
   def notify_if_bad_data(table_name)
+    send = false
+    mailstring = "Pri kopirovani dat do tabulky #{table_name} nastali problemy."
     joined_dataset = @dataset_connection[table_name.to_sym]
-    records_with_error = joined_dataset.filter('customer_company_name is ? or supplier_company_name is ?',nil,nil)
+    records_with_error = joined_dataset.filter('customer_company_name is ? or supplier_company_name is ? and note is ?',nil,nil, nil)
+    records_with_note = joined_dataset.filter('note is not null')
     if records_with_error.count > 0
       error_listing = records_with_error.map{|e| e[:_record_id] }.join(',')
-      send_mail("Pri kopirovani dat do tabulky #{table_name} nastali problemy. #{records_with_error.count} zaznam(ov) s nasledovnymi ID je nutne skontrolovat: #{error_listing}.")
+      mailstring += " #{records_with_error.count} zaznam(ov) s nasledovnymi ID je nutne skontrolovat: #{error_listing}."
+      send = true
     end
+    if records_with_note.count > 0
+      note_listing = records_with_note.map{|e| e[:_record_id] }.join(',')
+      mailstring += " #{records_with_error.count} zaznam(ov) s nasledovnymi ID ma pridanu poznamku a nie je nutne ich kontrolovat: #{note_listing}."
+      send = true
+    end
+    send_mail(mailstring) if send
   end
   
 end
