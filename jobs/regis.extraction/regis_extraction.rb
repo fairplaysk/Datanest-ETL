@@ -88,8 +88,8 @@ class RegisExtraction < Extraction
     # end
 
     if @last_processed_id > 0
-      self.logger.info "new download start id: #{@last_processed_id}"
-      defaults[:download_start_id] = @last_processed_id
+      self.logger.info "new download start id: #{@last_processed_id+1}"
+      defaults[:download_start_id] = @last_processed_id+1
       Thread.new { system('/Users/m1k3/Projects/AFP/datanest_etl/etl.rb regis.extraction') }
       exit
     end
