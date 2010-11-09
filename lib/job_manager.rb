@@ -98,6 +98,7 @@ def establish_connection(connection_info)
 	  :username => @connection_info["username"],
 	  :password => @connection_info["password"],
 	  :database => @staging_schema,
+	  :pool => 10,
 	  :encoding => 'utf8')
 end
 
