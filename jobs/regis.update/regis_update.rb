@@ -22,7 +22,6 @@ class RegisUpdate < Extraction
     document_update_count = 0
     last_doc_id = 0
     (@update_start_id..(@update_start_id+@update_daily_limit)).each do |doc_id|
-      puts doc_id
       record = RegisMain.find_by_doc_id(doc_id)
       if record
         document_update_count += 1 if update_record(record)
