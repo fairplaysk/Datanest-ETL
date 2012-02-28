@@ -15,6 +15,18 @@ For installation instructions read:
     http://wiki.github.com/Stiivi/Datacamp-ETL/installation
 
 
+LICENSE
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+
+AUTHORS
+
+Michal Olah
+Michal Barla
+Knowerce, Ltd. Slovakia
+
+
 TESTING
 
 To run tests you have to prepare config.yml file. Use config.yml.example as
